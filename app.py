@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 from groq import Groq
 from youtube_helper import get_transcript_text
 
-# 1. Configuración de la página
-st.set_page_config(page_title="YouTube Study Companion", page_icon="🎓")
+# 1. Configuración de la Página
+st.set_page_config(page_title="YouTube Study Companion", page_icon="🎓", layout="centered")
 
-# 2. Cargar entorno y cliente
+# 2. Cargar entorno
 load_dotenv()
 api_key = os.getenv("GROQ_API_KEY")
 
@@ -17,63 +17,69 @@ if not api_key:
 
 client = Groq(api_key=api_key)
 
-# 3. UI de Streamlit
+# 3. Función auxiliar para llamar al LLM
+def generar_resumen(texto_entrada):
+    prompt_sistema = """
+    Eres un profesor experto. Genera un resumen estructurado en Markdown:
+    1. Resumen Ejecutivo (2-3 frases)
+    2. Conceptos Clave (Viñetas)
+    3. Quiz de Repaso (3 preguntas cortas)
+    """
+    try:
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": prompt_sistema},
+                {"role": "user", "content": f"Texto a resumir: {texto_entrada}"}
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.5,
+        )
+        return chat_completion.choices[0].message.content
+    except Exception as e:
+        return f"Error en la IA: {e}"
+
+# 4. Interfaz Gráfica
 st.title("YouTube Study Companion")
-st.markdown("""
-¡Convierte videos largos en apuntes de estudio en segundos!
-*Pega la URL de un video educativo y la IA generará el resumen por ti.*
-""")
+st.markdown("Convierte videos en apuntes. Si la carga automática falla, usa el modo manual.")
 
-# Input de URL
-video_url = st.text_input("Link del Video de YouTube:", placeholder="https://www.youtube.com/watch?v=...")
+# --- PESTAÑAS (NUEVO) ---
+tab1, tab2 = st.tabs(["Vía URL (Automático)", "Pegar Texto (Manual)"])
 
-if st.button("Generar Apuntes"):
-    if not video_url:
-        st.warning("Por favor, introduce una URL válida.")
-    else:
-        # Iniciamos el proceso
-        with st.spinner("Escuchando el video y tomando notas..."):
-            try:
-                # PASO 1: Obtener transcripción
+# Pestaña 1: Automática
+with tab1:
+    video_url = st.text_input("🔗 Link del Video:", placeholder="https://youtube.com/...")
+    if st.button("Analizar Video"):
+        if not video_url:
+            st.warning("Introduce una URL.")
+        else:
+            with st.spinner("Conectando con YouTube..."):
                 transcript_text = get_transcript_text(video_url)
                 
-                # Mostramos un preview
-                with st.expander("Ver transcripción cruda (Debug)"):
-                    st.write(transcript_text[:500] + "...")
+                # DETECCIÓN INTELIGENTE DE FALLO
+                if "Hola a todos, bienvenidos a este curso de Python" in transcript_text:
+                    # En lugar de dar un resumen falso, avisamos y detenemos.
+                    st.error("YouTube ha bloqueado la conexión automática desde esta red (Protección Anti-Bot).")
+                    st.info("**Solución:** Por favor, usa la pestaña **'Pegar Texto (Manual)'**. Copia la transcripción del video y pégala ahí para un análisis 100% real.")
+                else:
+                    # Si funcionó de verdad (milagro), mostramos el resumen
+                    st.success("Subtítulos descargados correctamente.")
+                    respuesta = generar_resumen(transcript_text)
+                    st.markdown("---")
+                    st.markdown(respuesta)
 
-                # PASO 2: Preparar el Prompt para la IA
-                prompt_sistema = """
-                Eres un profesor experto y conciso. Tu tarea es ayudar a un estudiante a entender el siguiente texto extraído de un video.
-                Debes generar una salida en formato Markdown con esta estructura exacta:
-                
-                # Resumen Ejecutivo
-                (Un resumen de 2-3 frases de qué trata el video)
-                
-                # Conceptos Clave
-                (Lista de viñetas con los 3-5 puntos más importantes)
-                
-                # Quiz de Repaso
-                (3 preguntas cortas con sus respuestas ocultas o al final para autoevaluación)
-                """
-
-                # PASO 3: Llamar a Groq (Llama 3)
-                chat_completion = client.chat.completions.create(
-                    messages=[
-                        {"role": "system", "content": prompt_sistema},
-                        {"role": "user", "content": f"El texto del video es: {transcript_text}"}
-                    ],
-                    model="llama-3.3-70b-versatile",
-                    temperature=0.5,
-                )
-                
-                # PASO 4: Mostrar resultado
-                respuesta = chat_completion.choices[0].message.content
+# Pestaña 2: Manual (La solución robusta)
+with tab2:
+    st.info("Si YouTube bloquea la URL, copia la transcripción del video y pégala aquí.")
+    texto_manual = st.text_area("Pega aquí el texto del video:", height=300)
+    
+    if st.button("Analizar Texto Manual"):
+        if not texto_manual:
+            st.warning("El campo de texto está vacío.")
+        else:
+            with st.spinner("Analizando tus notas..."):
+                respuesta = generar_resumen(texto_manual)
                 st.markdown("---")
                 st.markdown(respuesta)
-                st.success("¡Apuntes generados con éxito!")
-
-            except Exception as e:
-                st.error(f"Ocurrió un error: {e}")
 
 # Footer
 st.markdown("---")
